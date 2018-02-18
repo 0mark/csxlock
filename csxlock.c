@@ -198,6 +198,48 @@ main_loop(Window w, GC gc, XFontStruct* font, WindowPositionInfo* info, char pas
         if (sleepmode && using_dpms)
             DPMSForceLevel(dpy, DPMSModeOff);
 
+        if(event.type == ConfigureNotify) {
+            int screen_num = DefaultScreen(dpy);
+            XRRScreenResources* screen = NULL;
+            RROutput output;
+            XRROutputInfo* output_info = NULL;
+            XRRCrtcInfo* crtc_info = NULL;
+            Window root;
+
+            root = DefaultRootWindow(dpy);
+            screen = XRRGetScreenResources (dpy, root);
+            output = XRRGetOutputPrimary(dpy, root);
+            if (output == 0) {
+                output = screen->outputs[0];
+            }
+            output_info = XRRGetOutputInfo(dpy, screen, output);
+
+            int i = 0;
+            while (output_info->connection != RR_Connected || output_info->crtc == 0) {
+                XRRFreeOutputInfo(output_info);
+                output_info = XRRGetOutputInfo(dpy, screen, screen->outputs[i++]);
+                fprintf(stderr, "Warning: no primary output detected, trying %s.\n", output_info->name);
+                if (i == screen->noutput)
+                    die("error: no connected output detected.\n");
+            }
+
+            crtc_info = XRRGetCrtcInfo (dpy, screen, output_info->crtc);
+
+            info->output_x = crtc_info->x;
+            info->output_y = crtc_info->y;
+            info->output_width = crtc_info->width;
+            info->output_height = crtc_info->height;
+            info->display_width = DisplayWidth(dpy, screen_num);
+            info->display_height = DisplayHeight(dpy, screen_num);
+
+            XResizeWindow(dpy, w, info->display_width, info->display_height);
+            XMapRaised(dpy, w);
+
+            XRRFreeScreenResources(screen);
+            XRRFreeOutputInfo(output_info);
+            XRRFreeCrtcInfo(crtc_info);
+        }
+
         /* update window if no events pending */
         if (!XPending(dpy)) {
             int x;
@@ -419,6 +461,8 @@ main(int argc, char** argv) {
 
     screen_num = DefaultScreen(dpy);
     root = DefaultRootWindow(dpy);
+
+    XSelectInput(dpy, root, StructureNotifyMask);
 
     /* get display/output size and position */
     {
